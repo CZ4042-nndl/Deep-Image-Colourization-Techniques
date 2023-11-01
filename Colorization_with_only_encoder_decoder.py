@@ -23,7 +23,7 @@ class Configuration:
     seed = 1234
 
 class HyperParameters:
-    epochs = 30
+    epochs = 19
     batch_size_train = 32
     batch_size_val = 16
     learning_rate = 0.001
