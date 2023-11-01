@@ -11,6 +11,7 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 
 class Configuration:
+    # TODO: create Models/ folder and ensure path is correct
     data_path = "YOUR_PATH_HERE/coco2017" #TODO: change your data path, must end with /coco2017
 
     load_model_to_train = False #TODO: True, continue training | False, train with init_weights
