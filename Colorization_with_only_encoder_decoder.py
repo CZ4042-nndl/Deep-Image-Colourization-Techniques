@@ -11,14 +11,19 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 
 class Configuration:
-    model_file_name = 'checkpoint.pt'
-    load_model_to_train = False
-    load_model_to_test = False
+    data_path = "YOUR_PATH_HERE/coco2017" #TODO: change your data path, must end with /coco2017
+
+    load_model_to_train = False #TODO: True, continue training | False, train with init_weights
+    model_file_name = 'checkpoint.pt' #TODO: change your file name if load_model_to_train = True
+    next_epoch = 1 #TODO: set as (latest checkpoint number + 1) if load_model_to_train = True
+
+    load_model_to_test = False # ignore for now
     device = "cuda" if torch.cuda.is_available() else "cpu"
     point_batches = 500
+    seed = 1234
 
 class HyperParameters:
-    epochs = 30
+    epochs = 19
     batch_size_train = 32
     batch_size_val = 16
     learning_rate = 0.001
@@ -28,6 +33,7 @@ class HyperParameters:
 config = Configuration()
 hparams = HyperParameters()
 print('Device:',config.device)
+torch.manual_seed(config.seed)
 
 class CustomDataset(Dataset):
     def __init__(self, root_dir, process_type):
@@ -91,52 +97,6 @@ class CustomDataset(Dataset):
             print('Exception at ',self.files[index], e)
             return torch.tensor(-1), torch.tensor(-1), torch.tensor(-1), torch.tensor(-1), 'Error'
 
-    def show_rgb(self, index):
-        self.__getitem__(index)
-        print("RGB image size:", self.rgb_img.shape)        
-        cv2.imshow(self.rgb_img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-
-    def show_lab_encoder(self, index):
-        self.__getitem__(index)
-        print("Encoder Lab image size:", self.lab_encoder_img.shape)
-        cv2.imshow(self.lab_encoder_img)
-        c2.waitKey(0)
-        cv2.destroyAllWindows()
-
-    def show_lab_inception(self, index):
-        self.__getitem__(index)
-        print("Inception Lab image size:", self.lab_inception_img.shape)
-        cv2.imshow(self.lab_inception_img)
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-    
-    def show_other_images(self, index):
-        a,b,c,d,_ = self.__getitem__(index)
-        print("Encoder l channel image size:",a.shape)
-        cv2.imshow((a.detach().numpy().transpose(1,2,0)))
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        print("Encoder ab channel image size:",b.shape)
-        cv2.imshow((b.detach().numpy().transpose(1,2,0)[:,:,0]))
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        cv2.imshow((b.detach().numpy().transpose(1,2,0)[:,:,1]))
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        print("Inception l channel image size:",c.shape)
-        cv2.imshow(c.detach().numpy().transpose(1,2,0))
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-        print("Color resized image size:",d.shape)
-        cv2.imshow(d.detach().numpy().transpose(1,2,0))
-        cv2.waitKey(0)
-        cv2.destroyAllWindows()
-
-if not config.load_model_to_test:
-    train_dataset = CustomDataset('coco2017/train2017','train')
-    train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=hparams.batch_size_train, shuffle=True)
 
 class Encoder(nn.Module):
     def __init__(self):
@@ -250,7 +210,7 @@ optimizer = torch.optim.Adam(model.parameters(),lr=hparams.learning_rate, weight
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=2, verbose=True)
 
 if config.load_model_to_train or config.load_model_to_test:
-    checkpoint = torch.load("Models/checkpoint19.pt",map_location=torch.device(config.device))
+    checkpoint = torch.load(f"Models/{config.model_file_name}",map_location=torch.device(config.device))
    
     model.load_state_dict(checkpoint['model_state_dict'])
     model = model.to(config.device) 
@@ -270,19 +230,18 @@ inception_model.eval()
 loss_criterion = torch.nn.MSELoss(reduction='mean').to(config.device)
 
 if not config.load_model_to_test:
-    train_dataset = CustomDataset('coco2017/train2017','train')
+    train_dataset = CustomDataset(f'{config.data_path}/train2017','train')
     train_dataloader = torch.utils.data.DataLoader(train_dataset, batch_size=hparams.batch_size_train, shuffle=True)
-    
-
-    validataion_dataset = CustomDataset('coco2017/val2017','validation')
-    validation_dataloader = torch.utils.data.DataLoader(validataion_dataset, batch_size=hparams.batch_size_val, shuffle=False)
-
-if not config.load_model_to_test:
     print('Train:',len(train_dataloader), '| Total Images:',len(train_dataloader)*hparams.batch_size_train)
+
+    # validataion_dataset = CustomDataset(f'{config.data_path}/val2017','validation')
+    # validation_dataloader = torch.utils.data.DataLoader(validataion_dataset, batch_size=hparams.batch_size_val, shuffle=False)
     # print('Valid:',len(validation_dataloader), '| Total Images:',len(validation_dataloader)*hparams.batch_size_val)
 
 if not config.load_model_to_test:
-    for epoch in tqdm(range(1,hparams.epochs)):
+    # check whether training from scratch or continuing from a checkpoint
+    start = config.next_epoch if config.load_model_to_train else 0
+    for epoch in tqdm(range(start, hparams.epochs)):
         print('Starting epoch:',epoch)
 
         #*** Training step ***
@@ -342,68 +301,3 @@ if not config.load_model_to_test:
         torch.save(checkpoint, model_file_name)
         print("Model saved at:", model_file_name)
         # torch.cuda.empty_cache()
-
-test_dataset = CustomDataset('coco2017/test2017','test')
-test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0)
-print('Test: ',len(test_dataloader), '| Total Image:',len(test_dataloader))
-
-def concatente_and_colorize(im_lab, img_ab):
-    # Assumption is that im_lab is of size [1,3,224,224]
-    #print(im_lab.size(),img_ab.size())
-    np_img = im_lab[0].cpu().detach().numpy().transpose(1,2,0)
-    lab = np.empty([*np_img.shape[0:2], 3],dtype=np.float32)
-    lab[:, :, 0] = np.squeeze(((np_img + 1) * 50))
-    lab[:, :, 1:] = img_ab[0].cpu().detach().numpy().transpose(1,2,0) * 127
-    np_img = cv2.cvtColor(lab,cv2.COLOR_Lab2RGB) 
-    color_im = torch.stack([torchvision.transforms.ToTensor()(np_img)],dim=0)
-    return color_im
-
-#*** Inference Step ***
-avg_loss = 0.0
-loop_start = time.time()
-batch_start = time.time()
-batch_loss = 0.0
-
-for idx,(img_l_encoder, img_ab_encoder, img_l_inception, img_rgb, file_name) in enumerate(test_dataloader):
-        #*** Skip bad data ***
-        if not img_l_encoder.ndim:
-            continue
-            
-        #*** Move data to GPU if available ***
-        img_l_encoder = img_l_encoder.to(config.device)
-        img_ab_encoder = img_ab_encoder.to(config.device)
-        img_l_inception = img_l_inception.to(config.device)
-        
-        #*** Intialize Model to Eval Mode ***
-        model.eval()
-        
-        #*** Forward Propagation ***
-        img_embs = inception_model(img_l_inception.float())
-        output_ab = model(img_l_encoder,img_embs)
-        
-        #*** Adding l channel to ab channels ***
-        color_img = concatente_and_colorize(torch.stack([img_l_encoder[:,0,:,:]],dim=1),output_ab)
-        color_img_jpg = color_img[0].detach().numpy().transpose(1,2,0)
-        # cv2.imshow(color_img_jpg)
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
-        # cv2.imwrite('outputs/'+file_name[0],color_img_jpg*255)
-        save_image(color_img[0],'Outputs/'+file_name[0])
-
-#       #*** Printing to Tensor Board ***
-        grid = torchvision.utils.make_grid(color_img)
-        
-        #*** Loss Calculation ***
-        loss = loss_criterion(output_ab, img_ab_encoder.float())
-        avg_loss += loss.item()
-        batch_loss += loss.item()
-
-        if idx%config.point_batches==0: 
-            batch_end = time.time()   
-            print('Batch:',idx, '| Processing time for',config.point_batches,':',str(batch_end-batch_start)+'s', '| Batch Loss:', batch_loss/config.point_batches)
-            batch_start = time.time()
-            batch_loss = 0.0
-        
-test_loss = avg_loss/len(test_dataloader)
-print('Test Loss:',avg_loss/len(test_dataloader),'| Processed in ',str(time.time()-loop_start)+'s')
-
