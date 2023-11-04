@@ -10,10 +10,12 @@ import cv2
 from torchvision.utils import save_image
 from tqdm import tqdm
 
+"""This file uses a smaller version of encoder and the same decoder and is not the initial model given by the paper"""
+
 class Configuration:
-    checkpoint_file_name = 'checkpoint'  # The number will follow and then the .pt
-    load_model_file_name = 'checkpoint13.pt'
-    starting_epoch = 1 + 13
+    checkpoint_file_name = 'sesd_checkpoint'  # The number will follow and then the .pt
+    load_model_file_name = 'sesd_checkpoint14.pt'
+    starting_epoch = 1 + 14
     load_model_to_train = False
     load_model_to_test = False
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -152,23 +154,11 @@ class Encoder(nn.Module):
             nn.BatchNorm2d(128),
             nn.ReLU(inplace=True),
             
-            nn.Conv2d(in_channels=128, out_channels=128, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(128),
-            nn.ReLU(inplace=True),
-            
-            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=128, out_channels=256, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(256),
             nn.ReLU(inplace=True),
             
-            nn.Conv2d(in_channels=256, out_channels=256, kernel_size=3, stride=2, padding=1),
-            nn.BatchNorm2d(256),
-            nn.ReLU(inplace=True),
-            
-            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(512),
-            nn.ReLU(inplace=True),
-            
-            nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=256, out_channels=512, kernel_size=3, stride=2, padding=1),
             nn.BatchNorm2d(512),
             nn.ReLU(inplace=True),
             
@@ -209,14 +199,10 @@ class Decoder(nn.Module):
             nn.Upsample(scale_factor=2.0),
 
 
-            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(64),
-            nn.ReLU(inplace=True),
-            nn.Upsample(scale_factor=2.0),
-
             nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2.0),
             
             nn.Conv2d(in_channels=32, out_channels=2, kernel_size=3, stride=1, padding=1),
             nn.Conv2d(in_channels=2, out_channels=2, kernel_size=1, stride=1, padding=0),     
@@ -336,7 +322,7 @@ if not config.load_model_to_test:
         scheduler.step(train_loss)
 
         #*** Save the Model to disk ***
-        model_file_name = "Models/" + config.checkpoint_file_name + str(epoch) + ".pt"
+        model_file_name = "Models/"+config.checkpoint_file_name+str(epoch)+".pt"
         checkpoint = {'model_state_dict': model.state_dict(),\
                       'optimizer_state_dict' : optimizer.state_dict(),
                       'scheduler_state_dict' : scheduler.state_dict(),

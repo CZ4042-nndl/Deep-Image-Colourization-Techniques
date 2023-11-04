@@ -11,9 +11,9 @@ from torchvision.utils import save_image
 from tqdm import tqdm
 
 class Configuration:
-    checkpoint_file_name = 'checkpoint'  # The number will follow and then the .pt
-    load_model_file_name = 'checkpoint13.pt'
-    starting_epoch = 1 + 13
+    checkpoint_file_name = 'no_fusion_checkpoint'  # The number will follow and then the .pt
+    load_model_file_name = 'no_fusion_checkpoint13.pt'
+    starting_epoch = 1  # + 13
     load_model_to_train = False
     load_model_to_test = False
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -170,28 +170,12 @@ class Encoder(nn.Module):
             
             nn.Conv2d(in_channels=512, out_channels=512, kernel_size=3, stride=1, padding=1),
             nn.BatchNorm2d(512),
-            nn.ReLU(inplace=True),
-            
-            nn.Conv2d(in_channels=512, out_channels=256, kernel_size=3, stride=1, padding=1),
-            nn.BatchNorm2d(256),
             nn.ReLU(inplace=True)
-            
         )
 
     def forward(self, x):
         self.model = self.model.float()
         return self.model(x.float())
-    
-class FusionLayer(nn.Module):
-    def __init__(self):
-        super(FusionLayer,self).__init__()
-
-    def forward(self, inputs, mask=None):
-        ip, emb = inputs
-        emb = torch.stack([torch.stack([emb],dim=2)],dim=3)
-        emb = emb.repeat(1,1,ip.shape[2],ip.shape[3])
-        fusion = torch.cat((ip,emb),1)
-        return fusion
     
 class Decoder(nn.Module):
     def __init__(self, input_depth):
@@ -230,16 +214,13 @@ class Colorization(nn.Module):
     def __init__(self, depth_after_fusion):
         super(Colorization,self).__init__()
         self.encoder = Encoder()
-        self.fusion = FusionLayer()
-        self.after_fusion = nn.Conv2d(in_channels=1256, out_channels=depth_after_fusion,kernel_size=1, stride=1,padding=0)
-        self.bnorm = nn.BatchNorm2d(256)
+        self.after_fusion = nn.Conv2d(in_channels=512, out_channels=depth_after_fusion,kernel_size=1, stride=1,padding=0)
+        self.bnorm = nn.BatchNorm2d(depth_after_fusion)
         self.decoder = Decoder(depth_after_fusion)
 
-    def forward(self, img_l, img_emb):
+    def forward(self, img_l):
         img_enc = self.encoder(img_l)
-        # new_img_emb = torch.zeros_like(img_emb)
-        fusion = self.fusion([img_enc, img_emb])
-        fusion = self.after_fusion(fusion)
+        fusion = self.after_fusion(img_enc)
         fusion = self.bnorm(fusion)
         return self.decoder(fusion)
 
@@ -266,9 +247,6 @@ if config.load_model_to_train or config.load_model_to_test:
 else:
     model.apply(init_weights)
 
-inception_model = models.inception_v3(pretrained=True).float().to(config.device)
-inception_model = inception_model.float()
-inception_model.eval()
 loss_criterion = torch.nn.MSELoss(reduction='mean').to(config.device)
 
 if not config.load_model_to_test:
@@ -308,8 +286,7 @@ if not config.load_model_to_test:
             optimizer.zero_grad()
 
             #*** Forward Propagation ***
-            img_embs = inception_model(img_l_inception.float())
-            output_ab = model(img_l_encoder,img_embs)
+            output_ab = model(img_l_encoder)
 
             #*** Back propogation ***
             loss = loss_criterion(output_ab, img_ab_encoder.float())
@@ -336,7 +313,7 @@ if not config.load_model_to_test:
         scheduler.step(train_loss)
 
         #*** Save the Model to disk ***
-        model_file_name = "Models/" + config.checkpoint_file_name + str(epoch) + ".pt"
+        model_file_name = "Models/"+config.checkpoint_file_name+str(epoch)+".pt"
         checkpoint = {'model_state_dict': model.state_dict(),\
                       'optimizer_state_dict' : optimizer.state_dict(),
                       'scheduler_state_dict' : scheduler.state_dict(),
@@ -380,8 +357,7 @@ for idx,(img_l_encoder, img_ab_encoder, img_l_inception, img_rgb, file_name) in 
         model.eval()
         
         #*** Forward Propagation ***
-        img_embs = inception_model(img_l_inception.float())
-        output_ab = model(img_l_encoder,img_embs)
+        output_ab = model(img_l_encoder)
         
         #*** Adding l channel to ab channels ***
         color_img = concatente_and_colorize(torch.stack([img_l_encoder[:,0,:,:]],dim=1),output_ab)
