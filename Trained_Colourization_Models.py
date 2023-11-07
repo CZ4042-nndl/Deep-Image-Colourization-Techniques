@@ -222,7 +222,8 @@ class Encoder_Default(nn.Module):
     def forward(self, x):
         self.model = self.model.float()
         return self.model(x.float())
-    
+
+
 class FusionLayer_Default(nn.Module):
     def __init__(self):
         super(FusionLayer_Default,self).__init__()
@@ -233,7 +234,8 @@ class FusionLayer_Default(nn.Module):
         emb = emb.repeat(1,1,ip.shape[2],ip.shape[3])
         fusion = torch.cat((ip,emb),1)
         return fusion
-    
+
+
 class Decoder_Default(nn.Module):
     def __init__(self, input_depth):
         super(Decoder_Default,self).__init__()
@@ -264,7 +266,8 @@ class Decoder_Default(nn.Module):
 
     def forward(self, x):
         return self.model(x)
-    
+
+
 class Colorization_Default(nn.Module):
     def __init__(self, depth_after_fusion=256):
         super(Colorization_Default,self).__init__()
@@ -281,7 +284,8 @@ class Colorization_Default(nn.Module):
         fusion = self.after_fusion(fusion)
         fusion = self.bnorm(fusion)
         return self.decoder(fusion)
-    
+
+
 class Encoder_SESD(nn.Module):
     def __init__(self):
         super(Encoder_SESD,self).__init__()
@@ -311,7 +315,8 @@ class Encoder_SESD(nn.Module):
     def forward(self, x):
         self.model = self.model.float()
         return self.model(x.float())
-    
+
+
 class FusionLayer_SESD(nn.Module):
     def __init__(self):
         super(FusionLayer_SESD,self).__init__()
@@ -322,7 +327,8 @@ class FusionLayer_SESD(nn.Module):
         emb = emb.repeat(1,1,ip.shape[2],ip.shape[3])
         fusion = torch.cat((ip,emb),1)
         return fusion
-    
+
+
 class Decoder_SESD(nn.Module):
     def __init__(self, input_depth):
         super(Decoder_SESD,self).__init__()
@@ -351,7 +357,8 @@ class Decoder_SESD(nn.Module):
 
     def forward(self, x):
         return self.model(x)
-    
+
+
 class Colorization_SESD(nn.Module):
     def __init__(self, depth_after_fusion):
         super(Colorization_SESD,self).__init__()
@@ -368,7 +375,8 @@ class Colorization_SESD(nn.Module):
         fusion = self.after_fusion(fusion)
         fusion = self.bnorm(fusion)
         return self.decoder(fusion)
-    
+
+
 class Encoder_NoFusion(nn.Module):
     def __init__(self):
         super(Encoder_NoFusion,self).__init__()
@@ -405,7 +413,8 @@ class Encoder_NoFusion(nn.Module):
     def forward(self, x):
         self.model = self.model.float()
         return self.model(x.float())
-    
+
+
 class Decoder_NoFusion(nn.Module):
     def __init__(self, input_depth):
         super(Decoder_NoFusion,self).__init__()
@@ -436,7 +445,8 @@ class Decoder_NoFusion(nn.Module):
 
     def forward(self, x):
         return self.model(x)
-    
+
+
 class Colorization_NoFusion(nn.Module):
     def __init__(self, depth_after_fusion):
         super(Colorization_NoFusion,self).__init__()
@@ -450,6 +460,132 @@ class Colorization_NoFusion(nn.Module):
         fusion = self.after_fusion(img_enc)
         fusion = self.bnorm(fusion)
         return self.decoder(fusion)
+    
+
+class Encoder_Tiniest(nn.Module):
+    def __init__(self):
+        super(Encoder_Tiniest,self).__init__()
+        self.model = nn.Sequential(
+            nn.Conv2d(in_channels=3, out_channels=64, kernel_size=3, stride=2, padding=1), 
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True)
+        )
+
+    def forward(self, x):
+        self.model = self.model.float()
+        return self.model(x.float())
+
+
+class Decoder_Tiniest(nn.Module):
+    def __init__(self):
+        super(Decoder_Tiniest,self).__init__()
+        self.model = nn.Sequential(
+            nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2.0),
+            
+            nn.Conv2d(in_channels=32, out_channels=2, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=2, out_channels=2, kernel_size=1, stride=1, padding=0),     
+            nn.Tanh()
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+
+class Colorization_Tiniest(nn.Module):
+    def __init__(self, depth_after_fusion):
+        super(Colorization_Tiniest,self).__init__()
+        self.encoder = Encoder_Tiniest()
+        # self.after_fusion = nn.Conv2d(in_channels=512, out_channels=depth_after_fusion,kernel_size=1, stride=1,padding=0)
+        # self.bnorm = nn.BatchNorm2d(depth_after_fusion)
+        self.decoder = Decoder_Tiniest()
+
+    def forward(self, img_l):
+        img_enc = self.encoder(img_l)
+        # fusion = self.after_fusion(img_enc)
+        # fusion = self.bnorm(fusion)
+        return self.decoder(img_enc)
+
+
+def convrelu(in_channels, out_channels, kernel, padding):
+    return nn.Sequential(
+        nn.Conv2d(in_channels, out_channels, kernel, padding=padding),
+        nn.ReLU(inplace=True),
+    )
+
+class Colorization_ResNetUNet(nn.Module):
+    def __init__(self, n_class):
+        super().__init__()
+
+        self.base_model = models.resnet18(pretrained=False)
+        self.base_layers = list(self.base_model.children())
+
+        self.layer0 = nn.Sequential(*self.base_layers[:3]) # size=(N, 64, x.H/2, x.W/2)
+        self.layer0_1x1 = convrelu(64, 64, 1, 0)
+        self.layer1 = nn.Sequential(*self.base_layers[3:5]) # size=(N, 64, x.H/4, x.W/4)
+        self.layer1_1x1 = convrelu(64, 64, 1, 0)
+        self.layer2 = self.base_layers[5]  # size=(N, 128, x.H/8, x.W/8)
+        self.layer2_1x1 = convrelu(128, 128, 1, 0)
+        self.layer3 = self.base_layers[6]  # size=(N, 256, x.H/16, x.W/16)
+        self.layer3_1x1 = convrelu(256, 256, 1, 0)
+        self.layer4 = self.base_layers[7]  # size=(N, 512, x.H/32, x.W/32)
+        self.layer4_1x1 = convrelu(512, 512, 1, 0)
+
+        self.upsample = nn.Upsample(scale_factor=2, mode='bilinear', align_corners=True)
+
+        self.conv_up3 = convrelu(256 + 512, 512, 3, 1)
+        self.conv_up2 = convrelu(128 + 512, 256, 3, 1)
+        self.conv_up1 = convrelu(64 + 256, 256, 3, 1)
+        self.conv_up0 = convrelu(64 + 256, 128, 3, 1)
+
+        self.conv_original_size0 = convrelu(3, 64, 3, 1)
+        self.conv_original_size1 = convrelu(64, 64, 3, 1)
+        self.conv_original_size2 = convrelu(64 + 128, 64, 3, 1)
+
+        self.conv_last = nn.Conv2d(64, n_class, 1)
+        self.lab_adjustment = nn.Tanh()  # Added nn.Tanh to the regular architecture to better match the lab format (ab output)
+
+    def forward(self, input):
+        x_original = self.conv_original_size0(input)
+        x_original = self.conv_original_size1(x_original)
+
+        layer0 = self.layer0(input)
+        layer1 = self.layer1(layer0)
+        layer2 = self.layer2(layer1)
+        layer3 = self.layer3(layer2)
+        layer4 = self.layer4(layer3)
+
+        layer4 = self.layer4_1x1(layer4)
+        x = self.upsample(layer4)
+        layer3 = self.layer3_1x1(layer3)
+        x = torch.cat([x, layer3], dim=1)
+        x = self.conv_up3(x)
+
+        x = self.upsample(x)
+        layer2 = self.layer2_1x1(layer2)
+        x = torch.cat([x, layer2], dim=1)
+        x = self.conv_up2(x)
+
+        x = self.upsample(x)
+        layer1 = self.layer1_1x1(layer1)
+        x = torch.cat([x, layer1], dim=1)
+        x = self.conv_up1(x)
+
+        x = self.upsample(x)
+        layer0 = self.layer0_1x1(layer0)
+        x = torch.cat([x, layer0], dim=1)
+        x = self.conv_up0(x)
+
+        x = self.upsample(x)
+        x = torch.cat([x, x_original], dim=1)
+        x = self.conv_original_size2(x)
+
+        out = self.lab_adjustment(self.conv_last(x))  # Added nn.Tanh to the regular architecture to better match the lab format (ab output)
+
+        return out
+
     
 # Now we load different model runners (they will make it easier to run and test a model and handle all the pre and post processing)
 
@@ -477,6 +613,13 @@ class Base_Model_Runner():
         inception_img = input_image.get_inception_img(direct_input=False)
         img_embs = self.inception_model(inception_img.float().unsqueeze(0))
         output_ab = self.model(input_image.get_encoder_img(direct_input=False).unsqueeze(0), img_embs)
+        new_lab_image = torch.stack([input_image.get_encoder_img(direct_input=True)[:,0,:,:]], dim=1)
+        color_img = self._concatente_and_colorize(new_lab_image, output_ab)
+        color_img_jpg = color_img[0].detach().numpy().transpose(1,2,0)
+        return color_img_jpg
+    
+    def _get_image_output_no_fusion(self, input_image: Testing_Image) -> np.ndarray:
+        output_ab = self.model(input_image.get_encoder_img(direct_input=False).unsqueeze(0))
         new_lab_image = torch.stack([input_image.get_encoder_img(direct_input=True)[:,0,:,:]], dim=1)
         color_img = self._concatente_and_colorize(new_lab_image, output_ab)
         color_img_jpg = color_img[0].detach().numpy().transpose(1,2,0)
@@ -524,9 +667,33 @@ class NoFusion_Model_Runner(Base_Model_Runner):
         self.model.eval()
     
     def get_image_output(self, input_image: Testing_Image) -> np.ndarray:
-        output_ab = self.model(input_image.get_encoder_img(direct_input=False).unsqueeze(0))
-        new_lab_image = torch.stack([input_image.get_encoder_img(direct_input=True)[:,0,:,:]], dim=1)
-        color_img = self._concatente_and_colorize(new_lab_image, output_ab)
-        color_img_jpg = color_img[0].detach().numpy().transpose(1,2,0)
-        return color_img_jpg
+        return self._get_image_output_no_fusion(input_image)
+    
+class Tiniest_Model_Runner(Base_Model_Runner):
+    def __init__(self, checkpoint_path="Models/tiniest_checkpoint19.pt"):
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        self.model = Colorization_Tiniest(256).to(device)
+        
+        checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.model = self.model.to(device)
+        self.model.eval()
+    
+    def get_image_output(self, input_image: Testing_Image) -> np.ndarray:
+        return self._get_image_output_no_fusion(input_image)
+    
+class ResNetUNet_Model_Runner(Base_Model_Runner):
+    def __init__(self, checkpoint_path="Models/ResNetUNet_checkpoint19.pt") -> None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        self.model = Colorization_ResNetUNet(2).to(device)
+        
+        checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.model = self.model.to(device)
+        self.model.eval()
+    
+    def get_image_output(self, input_image: Testing_Image) -> np.ndarray:
+        return self._get_image_output_no_fusion(input_image)
 
