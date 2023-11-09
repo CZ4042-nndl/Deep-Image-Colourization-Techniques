@@ -586,7 +586,107 @@ class Colorization_ResNetUNet(nn.Module):
 
         return out
 
+class Decoder_RGB(nn.Module):
+    def __init__(self, input_depth):
+        super(Decoder_RGB,self).__init__()
+        self.model = nn.Sequential(
+            nn.Conv2d(in_channels=input_depth, out_channels=128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2.0),
+
+
+            nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2.0),
+
+
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2.0),
+
+            nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            
+            nn.Conv2d(in_channels=32, out_channels=3, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=3, out_channels=3, kernel_size=1, stride=1, padding=0),     
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        return self.model(x)
     
+class Colorization_RGB(nn.Module):
+    def __init__(self, depth_after_fusion):
+        super(Colorization_RGB,self).__init__()
+        self.encoder = Encoder_Default()
+        self.fusion = FusionLayer_Default()
+        self.after_fusion = nn.Conv2d(in_channels=1256, out_channels=depth_after_fusion,kernel_size=1, stride=1,padding=0)
+        self.bnorm = nn.BatchNorm2d(256)
+        self.decoder = Decoder_RGB(depth_after_fusion)
+
+    def forward(self, img_l, img_emb):
+        img_enc = self.encoder(img_l)
+        # new_img_emb = torch.zeros_like(img_emb)
+        fusion = self.fusion([img_enc, img_emb])
+        fusion = self.after_fusion(fusion)
+        fusion = self.bnorm(fusion)
+        return self.decoder(fusion)
+
+class Decoder_LAB(nn.Module):
+    def __init__(self, input_depth):
+        super(Decoder_LAB,self).__init__()
+        self.model = nn.Sequential(
+            nn.Conv2d(in_channels=input_depth, out_channels=128, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(128),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2.0),
+
+
+            nn.Conv2d(in_channels=128, out_channels=64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2.0),
+
+
+            nn.Conv2d(in_channels=64, out_channels=64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Upsample(scale_factor=2.0),
+
+            nn.Conv2d(in_channels=64, out_channels=32, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            
+            nn.Conv2d(in_channels=32, out_channels=3, kernel_size=3, stride=1, padding=1),
+            nn.Conv2d(in_channels=3, out_channels=3, kernel_size=1, stride=1, padding=0),    
+            nn.Tanh()
+        )
+
+    def forward(self, x):
+        return self.model(x)
+
+class Colorization_LAB(nn.Module):
+    def __init__(self, depth_after_fusion):
+        super(Colorization_LAB,self).__init__()
+        self.encoder = Encoder_Default()
+        self.fusion = FusionLayer_Default()
+        self.after_fusion = nn.Conv2d(in_channels=1256, out_channels=depth_after_fusion,kernel_size=1, stride=1,padding=0)
+        self.bnorm = nn.BatchNorm2d(256)
+        self.decoder = Decoder_LAB(depth_after_fusion)
+
+    def forward(self, img_l, img_emb):
+        img_enc = self.encoder(img_l)
+        # new_img_emb = torch.zeros_like(img_emb)
+        fusion = self.fusion([img_enc, img_emb])
+        fusion = self.after_fusion(fusion)
+        fusion = self.bnorm(fusion)
+        return self.decoder(fusion)
+    
+
 # Now we load different model runners (they will make it easier to run and test a model and handle all the pre and post processing)
 
 class Base_Model_Runner():
@@ -696,4 +796,72 @@ class ResNetUNet_Model_Runner(Base_Model_Runner):
     
     def get_image_output(self, input_image: Testing_Image) -> np.ndarray:
         return self._get_image_output_no_fusion(input_image)
+
+class RGB_Model_Runner(Base_Model_Runner):
+    """Model_Runner class for Default Architecture Model returning RGB Channels instead of just AB part of LAB"""
+    def __init__(self, checkpoint_path="Models/RGBcheckpoint19.pt"):
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        self.model = Colorization_RGB(256).to(device)
+        
+        checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.model = self.model.to(device)
+        self.model.eval()
+
+        self.inception_model = models.inception_v3(pretrained=True).float().to(device)
+        self.inception_model = self.inception_model.float()
+        self.inception_model.eval()
+
+    def _process_RGB_output(self, output_rgb):
+        rgb_channels = output_rgb[0].cpu().detach().numpy().transpose(1,2,0) # (224,224,3)
+        im_rgb_processed = (rgb_channels * 255).astype(np.uint8)
+        im_rgb_processed = cv2.cvtColor(im_rgb_processed,cv2.COLOR_BGR2RGB)
+        im_rgb_processed = torchvision.transforms.ToTensor()(im_rgb_processed) # (3,224,224) # auto normalise under the hood, dont need to * 255 again
+        return im_rgb_processed
+    
+    def get_image_output(self, input_image: Testing_Image) -> np.ndarray:
+        inception_img = input_image.get_inception_img(direct_input=False)
+        img_embs = self.inception_model(inception_img.float().unsqueeze(0))
+        output_rgb = self.model(input_image.get_encoder_img(direct_input=False).unsqueeze(0), img_embs)
+        output_rgb_processed = self._process_RGB_output(output_rgb)
+        # save_image(output_rgb_processed,'./Outputs/'+file_name[0])
+        output_rgb_img = output_rgb_processed.cpu().detach().numpy()
+        color_img_jpg = output_rgb_img.transpose(1,2,0)
+        return color_img_jpg
+
+class LAB_Model_Runner(Base_Model_Runner):
+    """Model_Runner class for Default Architecture Model returning all LAB Channels instead of just AB"""
+    def __init__(self, checkpoint_path="Models/LABcheckpoint19.pt"):
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        
+        self.model = Colorization_LAB(256).to(device)
+        
+        checkpoint = torch.load(checkpoint_path, map_location=torch.device(device))
+        self.model.load_state_dict(checkpoint['model_state_dict'])
+        self.model = self.model.to(device)
+        self.model.eval()
+
+        self.inception_model = models.inception_v3(pretrained=True).float().to(device)
+        self.inception_model = self.inception_model.float()
+        self.inception_model.eval()
+    
+    def _process_LAB_output(self, im_lab): # A,B,L
+        lab_channels = im_lab[0].cpu().detach().numpy().transpose(1,2,0) # this transpose is to form (height, width, channel)
+        l, ab = lab_channels[:, :, 2], lab_channels[:, :, :2] # A,B,L
+        lab = np.empty([*lab_channels.shape[0:2], 3],dtype=np.float32)
+        lab[:, :, 0] = (l + 1.0) * 50.0
+        lab[:, :, 1:] = ab * 127.0
+        np_img = cv2.cvtColor(lab,cv2.COLOR_Lab2RGB) 
+        color_im = torch.stack([torchvision.transforms.ToTensor()(np_img)],dim=0)
+        return color_im
+    
+    def get_image_output(self, input_image: Testing_Image) -> np.ndarray:
+        inception_img = input_image.get_inception_img(direct_input=False)
+        img_embs = self.inception_model(inception_img.float().unsqueeze(0))
+        output_lab = self.model(input_image.get_encoder_img(direct_input=False).unsqueeze(0), img_embs)
+        output_rgb = self._process_LAB_output(output_lab)
+        output_rgb_img = output_rgb[0].detach().numpy().transpose(1,2,0)
+
+        return output_rgb_img
 
