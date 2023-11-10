@@ -1,15 +1,11 @@
 import os
-import time
+import cv2
 import numpy as np 
 import torch
 import torch.nn as nn
-import torchvision
+from torch.utils.data import Dataset
 import torchvision.models as models
-from torch.utils.data import Dataset, DataLoader
-import cv2
-from torchvision.utils import save_image
-from tqdm import tqdm
-import matplotlib.pyplot as plt
+from torchvision.transforms import ToTensor
 
 
 class CustomDataset(Dataset):
@@ -26,6 +22,7 @@ class CustomDataset(Dataset):
     def __getitem__(self, index):
         try:
             #*** Read the image from file ***
+            # Note: cv2 actually reads images into BGR format
             self.rgb_img = cv2.imread(os.path.join(self.root_dir,self.files[index])).astype(np.float32) 
             self.rgb_img /= 255.0 
             
@@ -46,7 +43,7 @@ class CustomDataset(Dataset):
             l_encoder_img = l_encoder_img/50.0 - 1.0
             
             #*** Repeat the l-channel to 3 dimensions ***
-            l_encoder_img = torchvision.transforms.ToTensor()(l_encoder_img)
+            l_encoder_img = ToTensor()(l_encoder_img)
             l_encoder_img = l_encoder_img.expand(3,-1,-1)
             
             #*** Normalize a and b channels and concatenate ***
@@ -64,11 +61,11 @@ class CustomDataset(Dataset):
             l_inception_img = self.lab_inception_img[:,:,0]/50.0 - 1.0
              
             #*** Convert the inception l-image to torch Tensor and stack it in 3 channels ***
-            l_inception_img = torchvision.transforms.ToTensor()(l_inception_img)
+            l_inception_img = ToTensor()(l_inception_img)
             l_inception_img = l_inception_img.expand(3,-1,-1)
             
             ''' return images to data-loader '''
-            rgb_encoder_img = torchvision.transforms.ToTensor()(rgb_encoder_img)
+            rgb_encoder_img = ToTensor()(rgb_encoder_img)
             return l_encoder_img, ab_encoder_img, l_inception_img, rgb_encoder_img, self.files[index]
         
         except Exception as e:
@@ -178,9 +175,11 @@ class Testing_Image():
 
         return l_inception_img if not direct_input else l_inception_img.unsqueeze(0)
 
-# Now we will load several different model architectures
 
-# 1) Default Architecture (Starting point of our experiments
+""" Model Architectures """
+
+""" (1) Default Model (Starting point of our experiments) """
+
 class Encoder_Default(nn.Module):
     def __init__(self):
         super(Encoder_Default,self).__init__()
@@ -286,6 +285,8 @@ class Colorization_Default(nn.Module):
         return self.decoder(fusion)
 
 
+""" (2) Small Encoder Small Decoder (SESD) Model """
+
 class Encoder_SESD(nn.Module):
     def __init__(self):
         super(Encoder_SESD,self).__init__()
@@ -377,6 +378,8 @@ class Colorization_SESD(nn.Module):
         return self.decoder(fusion)
 
 
+""" (3) No Fusion Model """
+
 class Encoder_NoFusion(nn.Module):
     def __init__(self):
         super(Encoder_NoFusion,self).__init__()
@@ -462,6 +465,8 @@ class Colorization_NoFusion(nn.Module):
         return self.decoder(fusion)
     
 
+""" (4) Tiniest Model """
+
 class Encoder_Tiniest(nn.Module):
     def __init__(self):
         super(Encoder_Tiniest,self).__init__()
@@ -508,6 +513,8 @@ class Colorization_Tiniest(nn.Module):
         # fusion = self.bnorm(fusion)
         return self.decoder(img_enc)
 
+
+""" (5) ResNet-UNet Model """
 
 def convrelu(in_channels, out_channels, kernel, padding):
     return nn.Sequential(
@@ -687,7 +694,10 @@ class Colorization_LAB(nn.Module):
         return self.decoder(fusion)
     
 
-# Now we load different model runners (they will make it easier to run and test a model and handle all the pre and post processing)
+""" 
+Model runners
+    initialises the model architecture, any checkpoint file, pre, and post processing methods 
+"""
 
 class Base_Model_Runner():
     """
@@ -698,15 +708,14 @@ class Base_Model_Runner():
         return self.model
     
     def _concatente_and_colorize(self, im_lab, img_ab):
-        # Assumption is that im_lab is of size [1,1,224,224]
-        # print(im_lab.size(),img_ab.size())
+        # denormalises and concatenates L channel with AB output channels
+        #   converts resultant LAB image to RGB format
         np_img = im_lab[0].cpu().detach().numpy().transpose(1,2,0)
         lab = np.empty([*np_img.shape[0:2], 3],dtype=np.float32)
         lab[:, :, 0] = np.squeeze(((np_img + 1) * 50))
         lab[:, :, 1:] = img_ab[0].cpu().detach().numpy().transpose(1,2,0) * 127
         np_img = cv2.cvtColor(lab,cv2.COLOR_Lab2RGB) 
-        color_im = torch.stack([torchvision.transforms.ToTensor()(np_img)],dim=0)
-        # color_img_jpg = color_im[0].detach().numpy().transpose(1,2,0)
+        color_im = torch.stack([ToTensor()(np_img)],dim=0)
         return color_im
     
     def get_image_output(self, input_image: Testing_Image) -> np.ndarray:
@@ -814,10 +823,11 @@ class RGB_Model_Runner(Base_Model_Runner):
         self.inception_model.eval()
 
     def _process_RGB_output(self, output_rgb):
-        rgb_channels = output_rgb[0].cpu().detach().numpy().transpose(1,2,0) # (224,224,3)
+        # denormalises and convert BGR output to RGB format
+        rgb_channels = output_rgb[0].cpu().detach().numpy().transpose(1,2,0)
         im_rgb_processed = (rgb_channels * 255).astype(np.uint8)
         im_rgb_processed = cv2.cvtColor(im_rgb_processed,cv2.COLOR_BGR2RGB)
-        im_rgb_processed = torchvision.transforms.ToTensor()(im_rgb_processed) # (3,224,224) # auto normalise under the hood, dont need to * 255 again
+        im_rgb_processed = ToTensor()(im_rgb_processed)
         return im_rgb_processed
     
     def get_image_output(self, input_image: Testing_Image) -> np.ndarray:
@@ -825,7 +835,6 @@ class RGB_Model_Runner(Base_Model_Runner):
         img_embs = self.inception_model(inception_img.float().unsqueeze(0))
         output_rgb = self.model(input_image.get_encoder_img(direct_input=False).unsqueeze(0), img_embs)
         output_rgb_processed = self._process_RGB_output(output_rgb)
-        # save_image(output_rgb_processed,'./Outputs/'+file_name[0])
         output_rgb_img = output_rgb_processed.cpu().detach().numpy()
         color_img_jpg = output_rgb_img.transpose(1,2,0)
         return color_img_jpg
@@ -846,14 +855,15 @@ class LAB_Model_Runner(Base_Model_Runner):
         self.inception_model = self.inception_model.float()
         self.inception_model.eval()
     
-    def _process_LAB_output(self, im_lab): # A,B,L
-        lab_channels = im_lab[0].cpu().detach().numpy().transpose(1,2,0) # this transpose is to form (height, width, channel)
-        l, ab = lab_channels[:, :, 2], lab_channels[:, :, :2] # A,B,L
+    def _process_LAB_output(self, im_lab):
+        # denormalises and converts LAB output to RGB format
+        lab_channels = im_lab[0].cpu().detach().numpy().transpose(1,2,0)
+        l, ab = lab_channels[:, :, 2], lab_channels[:, :, :2]
         lab = np.empty([*lab_channels.shape[0:2], 3],dtype=np.float32)
         lab[:, :, 0] = (l + 1.0) * 50.0
         lab[:, :, 1:] = ab * 127.0
         np_img = cv2.cvtColor(lab,cv2.COLOR_Lab2RGB) 
-        color_im = torch.stack([torchvision.transforms.ToTensor()(np_img)],dim=0)
+        color_im = torch.stack([ToTensor()(np_img)],dim=0)
         return color_im
     
     def get_image_output(self, input_image: Testing_Image) -> np.ndarray:
