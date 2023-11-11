@@ -7,7 +7,7 @@
 
 ## Inference
 ### Setup
-1. Please download the model checkpoints
+1. Please download the model checkpoints [here](https://entuedu-my.sharepoint.com/:f:/g/personal/harshrao001_e_ntu_edu_sg/EnyTSKVK_uVAhFunaIadof4BFGhEGOvaf7dbDtRv_arS1w?e=9Fnp2i)
 2. Create a new virtual environment
 3. ```pip install -r requierments.txt```
 
