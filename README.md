@@ -1,4 +1,5 @@
 # Analysis of Deep Image Colourization Techniques
+![](https://github.com/CZ4042-nndl/Deep-Koalaizer/blob/Submission/Diagrams/Trees.png)
 ## Authors
 1. Harsh Rao Dhanyamraju [@HarshRaoD](https://github.com/HarshRaoD)
 2. Ang Boon Leng [@jimmysqqr](https://github.com/jimmysqqr)
@@ -53,3 +54,7 @@ plt.imshow(ti2..get_rgb())  # For ground truth Images
    3. set `starting_epoch = (current checkpoint epoch + 1)`
    4. set data path in `CustomDataset`
 3. Run the file to resume training ```python training_script.py```
+
+## Downloading COCO Dataset
+1. You can run DataAnalysis.ipynb to download the COCO Dataset and reduce the size of all images (to get training data)
+2. You'll need a valid kaggle api key and atleast 55 GB of free space
