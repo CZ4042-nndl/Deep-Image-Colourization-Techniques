@@ -498,14 +498,10 @@ class Colorization_Tiniest(nn.Module):
     def __init__(self, depth_after_fusion):
         super(Colorization_Tiniest,self).__init__()
         self.encoder = Encoder_Tiniest()
-        # self.after_fusion = nn.Conv2d(in_channels=512, out_channels=depth_after_fusion,kernel_size=1, stride=1,padding=0)
-        # self.bnorm = nn.BatchNorm2d(depth_after_fusion)
         self.decoder = Decoder_Tiniest()
 
     def forward(self, img_l):
         img_enc = self.encoder(img_l)
-        # fusion = self.after_fusion(img_enc)
-        # fusion = self.bnorm(fusion)
         return self.decoder(img_enc)
 
 
@@ -699,14 +695,13 @@ class Base_Model_Runner():
     
     def _concatente_and_colorize(self, im_lab, img_ab):
         # Assumption is that im_lab is of size [1,1,224,224]
-        # print(im_lab.size(),img_ab.size())
         np_img = im_lab[0].cpu().detach().numpy().transpose(1,2,0)
         lab = np.empty([*np_img.shape[0:2], 3],dtype=np.float32)
         lab[:, :, 0] = np.squeeze(((np_img + 1) * 50))
         lab[:, :, 1:] = img_ab[0].cpu().detach().numpy().transpose(1,2,0) * 127
         np_img = cv2.cvtColor(lab,cv2.COLOR_Lab2RGB) 
         color_im = torch.stack([torchvision.transforms.ToTensor()(np_img)],dim=0)
-        # color_img_jpg = color_im[0].detach().numpy().transpose(1,2,0)
+
         return color_im
     
     def get_image_output(self, input_image: Testing_Image) -> np.ndarray:
@@ -820,7 +815,8 @@ class RGB_Model_Runner(Base_Model_Runner):
         im_rgb_processed = torchvision.transforms.ToTensor()(im_rgb_processed) # (3,224,224) # auto normalise under the hood, dont need to * 255 again
         return im_rgb_processed
     
-    def get_image_output(self, input_image: Testing_Image) -> np.ndarray:
+    def get_image_output(self, input_image: Testing_Image, rgb_image = True) -> np.ndarray:
+        """If rgb_image is False the Testing image is considered to be in BGR"""
         inception_img = input_image.get_inception_img(direct_input=False)
         img_embs = self.inception_model(inception_img.float().unsqueeze(0))
         output_rgb = self.model(input_image.get_encoder_img(direct_input=False).unsqueeze(0), img_embs)
@@ -828,6 +824,8 @@ class RGB_Model_Runner(Base_Model_Runner):
         # save_image(output_rgb_processed,'./Outputs/'+file_name[0])
         output_rgb_img = output_rgb_processed.cpu().detach().numpy()
         color_img_jpg = output_rgb_img.transpose(1,2,0)
+        if not rgb_image:
+            color_img_jpg = cv2.cvtColor(color_img_jpg, cv2.COLOR_BGR2RGB)
         return color_img_jpg
 
 class LAB_Model_Runner(Base_Model_Runner):
