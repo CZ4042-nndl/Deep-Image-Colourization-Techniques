@@ -34,7 +34,7 @@ output_img = model_runner.get_image_output(ti2)
 ```
 plt.imshow(output_img)  # For model outputs
 plt.imshow(ti2.get_gray(), cmap='gray')  # For Input Images
-plt.imshow(ti2..get_rgb())  # For ground truth Images
+plt.imshow(ti2.get_rgb())  # For ground truth Images
 ```
 ## Training
 1. Create a new virtual environment
